@@ -1,4 +1,25 @@
-CREATE OR REPLACE FUNCTION toxml(objeto anynonarray)
+CREATE OR REPLACE FUNCTION composite_to_xml(objeto anyarray)
+  RETURNS text
+  LANGUAGE plpgsql
+AS
+$body$
+DECLARE
+    myXML text = '';
+    currentElement text;
+BEGIN
+    FOR i IN array_lower(objeto, 1) .. array_upper(objeto, 1) LOOP
+        SELECT composite_to_xml(objeto[i])
+          into currentElement;
+          
+        myXML := myXML || currentElement;
+    END LOOP;
+    return myXML;
+END;
+$body$
+ VOLATILE
+ COST 100;
+
+CREATE OR REPLACE FUNCTION composite_to_xml(objeto anynonarray)
   RETURNS text
   LANGUAGE plpgsql
 AS
@@ -34,7 +55,7 @@ BEGIN
                INTO currentValue
               USING objeto, currentName;
         else
-            EXECUTE 'SELECT toXML($1."' || currentName || '"::'|| currentType || arraySuffix ||')'
+            EXECUTE 'SELECT composite_to_xml($1."' || currentName || '"::'|| currentType || arraySuffix ||')'
                INTO currentValue
               USING objeto, currentName;
         end if;
@@ -51,26 +72,3 @@ END;
 $body$
  VOLATILE
  COST 100;
-
-
-CREATE OR REPLACE FUNCTION toxml(objeto anyarray)
-  RETURNS text
-  LANGUAGE plpgsql
-AS
-$body$
-DECLARE
-    myXML text = '';
-    currentElement text;
-BEGIN
-    FOR i IN array_lower(objeto, 1) .. array_upper(objeto, 1) LOOP
-        SELECT toXML(objeto[i])
-          into currentElement;
-          
-        myXML := myXML || currentElement;
-    END LOOP;
-    return myXML;
-END;
-$body$
- VOLATILE
- COST 100;
-

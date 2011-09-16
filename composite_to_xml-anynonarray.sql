@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION toxml(objeto anynonarray)
+CREATE OR REPLACE FUNCTION composite_to_xml(objeto anynonarray)
   RETURNS text
   LANGUAGE plpgsql
 AS
@@ -34,7 +34,7 @@ BEGIN
                INTO currentValue
               USING objeto, currentName;
         else
-            EXECUTE 'SELECT toXML($1."' || currentName || '"::'|| currentType || arraySuffix ||')'
+            EXECUTE 'SELECT composite_to_xml($1."' || currentName || '"::'|| currentType || arraySuffix ||')'
                INTO currentValue
               USING objeto, currentName;
         end if;

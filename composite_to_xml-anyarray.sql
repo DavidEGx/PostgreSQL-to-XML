@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION toxml(objeto anyarray)
+CREATE OR REPLACE FUNCTION composite_to_xml(objeto anyarray)
   RETURNS text
   LANGUAGE plpgsql
 AS
@@ -8,7 +8,7 @@ DECLARE
     currentElement text;
 BEGIN
     FOR i IN array_lower(objeto, 1) .. array_upper(objeto, 1) LOOP
-        SELECT toXML(objeto[i])
+        SELECT composite_to_xml(objeto[i])
           into currentElement;
           
         myXML := myXML || currentElement;
