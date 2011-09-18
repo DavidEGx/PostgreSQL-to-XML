@@ -1,3 +1,10 @@
+/**
+ * Converts a composite type into a xml text
+ *
+ * @param objeto Any non array variable
+ * @return XML representing the input
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ */
 CREATE OR REPLACE FUNCTION composite_to_xml(objeto anynonarray)
   RETURNS text
   LANGUAGE plpgsql
@@ -6,13 +13,13 @@ $body$
 DECLARE
     currentName text;
     currentType text;
-    currentArray integer;
     currentValue text;
-    currentCompuesto integer;
+    isArray integer;
+    isComposite integer;
     arraySuffix text;
     finalXML text = '';
 BEGIN
-    FOR currentName, currentType, currentArray, currentCompuesto IN
+    FOR currentName, currentType, isArray, isComposite IN
         SELECT a.attname
              , coalesce(substring(tt.typname, 2, 100), aa.typname)
              , Case When aa.typarray is null Then 0 Else 1 End
@@ -23,13 +30,13 @@ BEGIN
           left join pg_type aa on aa.typarray = a.atttypid
          WHERE c.relname = pg_typeof(objeto)::text
     LOOP
-        if (currentArray = 0) then
+        if (isArray = 0) then
             arraySuffix := '';
         else
             arraySuffix := '[]';
         end if;
 
-        if (currentCompuesto = 0) then
+        if (isComposite = 0) then
             EXECUTE 'SELECT $1."' || currentName ||'"'
                INTO currentValue
               USING objeto, currentName;
@@ -38,11 +45,10 @@ BEGIN
                INTO currentValue
               USING objeto, currentName;
         end if;
-
-          
+         
         finalXML := finalXML || '<' || coalesce(currentName, 'NULL');
         finalXML := finalXML || ' type="' || coalesce(currentType, 'NULL') || '" ';
-        finalXML := finalXML || ' array="' || coalesce(currentArray, 0) || '">';
+        finalXML := finalXML || ' array="' || coalesce(isArray, 0) || '">';
         finalXML := finalXML || coalesce(currentValue, 'NULL');
         finalXML := finalXML ||'</' || coalesce(currentName, 'NULL') || '>';
     END LOOP;

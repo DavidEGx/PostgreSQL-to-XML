@@ -1,3 +1,10 @@
+/**
+ * Converts a composite type into a xml text
+ *
+ * @param objeto Any array variable
+ * @return XML representing the input
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ */
 CREATE OR REPLACE FUNCTION composite_to_xml(objeto anyarray)
   RETURNS text
   LANGUAGE plpgsql
