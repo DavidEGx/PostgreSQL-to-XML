@@ -1,15 +1,50 @@
 /**
+* Converts a composite type into a xml text
+*
+* @param data Any array variable
+* @param tableforest If true prints a root node
+* @param targetns XML namespace
+* @return XML representing the input
+* @author David Escribano Garcia <davidegx@gmail.com>
+*/
+CREATE OR REPLACE FUNCTION composite_to_xml(data anyarray, tableforest boolean DEFAULT true, targetns text DEFAULT ''::text)
+  RETURNS text AS
+$BODY$
+DECLARE
+    myXML text = '';
+    currentElement text;
+BEGIN
+    FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
+        SELECT composite_to_xml(data[i], false)
+          into currentElement;
+          
+        myXML := myXML || currentElement;
+    END LOOP;
+    if (tableforest) then
+        return '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">' || myXML || '</xml>';
+    else
+        return myXML;
+    end if;
+
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+/
+
+/**
  * Converts a composite type into a xml text
  *
- * @param objeto Any non array variable
+ * @param data Any non array variable
+ * @param tableforest If true prints a root node
+ * @param targetns XML namespace
  * @return XML representing the input
  * @author David Escribano Garcia <davidegx@gmail.com>
  */
-CREATE OR REPLACE FUNCTION composite_to_xml(objeto anynonarray)
-  RETURNS text
-  LANGUAGE plpgsql
-AS
-$body$
+CREATE OR REPLACE FUNCTION composite_to_xml(data anynonarray, tableforest boolean DEFAULT true, targetns text DEFAULT ''::text)
+  RETURNS text AS
+$BODY$
 DECLARE
     currentName text;
     currentType text;
@@ -28,7 +63,7 @@ BEGIN
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
           left join pg_type tt on tt.typelem = a.atttypid
           left join pg_type aa on aa.typarray = a.atttypid
-         WHERE c.relname = pg_typeof(objeto)::text
+         WHERE c.relname = pg_typeof(data)::text
     LOOP
         if (isArray = 0) then
             arraySuffix := '';
@@ -39,49 +74,28 @@ BEGIN
         if (isComposite = 0) then
             EXECUTE 'SELECT $1."' || currentName ||'"'
                INTO currentValue
-              USING objeto, currentName;
+              USING data, currentName;
         else
-            EXECUTE 'SELECT composite_to_xml($1."' || currentName || '"::'|| currentType || arraySuffix ||')'
+            EXECUTE 'SELECT composite_to_xml($1."' || currentName || '"::'|| currentType || arraySuffix ||', false)'
                INTO currentValue
-              USING objeto, currentName;
+              USING data, currentName;
         end if;
-         
+
+        if (tableforest) then
+            finalXML := '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">';
+        end if;
         finalXML := finalXML || '<' || coalesce(currentName, 'NULL');
         finalXML := finalXML || ' type="' || coalesce(currentType, 'NULL') || '" ';
         finalXML := finalXML || ' array="' || coalesce(isArray, 0) || '">';
         finalXML := finalXML || coalesce(currentValue, 'NULL');
         finalXML := finalXML ||'</' || coalesce(currentName, 'NULL') || '>';
+        if (tableforest) then
+            finalXML := finalXML || '</xml>';
+        end if;
     END LOOP;
     return finalXML;
 END;
-$body$
- VOLATILE
- COST 100;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
 
-/**
- * Converts a composite type into a xml text
- *
- * @param objeto Any array variable
- * @return XML representing the input
- * @author David Escribano Garcia <davidegx@gmail.com>
- */
-CREATE OR REPLACE FUNCTION composite_to_xml(objeto anyarray)
-  RETURNS text
-  LANGUAGE plpgsql
-AS
-$body$
-DECLARE
-    myXML text = '';
-    currentElement text;
-BEGIN
-    FOR i IN array_lower(objeto, 1) .. array_upper(objeto, 1) LOOP
-        SELECT composite_to_xml(objeto[i])
-          into currentElement;
-          
-        myXML := myXML || currentElement;
-    END LOOP;
-    return myXML;
-END;
-$body$
- VOLATILE
- COST 100;
