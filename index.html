@@ -73,10 +73,10 @@
     </h1>
 
     <div class="description">
-      Converts a PostgreSQL composite into a XML text
+      Converts a PostgreSQL composite into a XML or Json text
     </div>
 
-    <p>This project provides functions to translate a PostgreSQL composite type into a XML.</p>
+    <p>This project provides functions to translate a PostgreSQL composite type into a XML or Json format.</p>
     Suppose you have the following composite types in your database:
     <pre class="terminal">
         <span class="codeline">
@@ -111,12 +111,27 @@ CREATE TYPE customer AS
     &lt;name type="text" array="0"&gt;CustomerName&lt;&#47;name&gt;
     &lt;surname type="text" array="0"&gt;CustomerSurname&lt;&#47;surname&gt;
     &lt;address type="address" array="0"&gt;
-        &lt;street type="text" array="0"&gt;&lt;&#47;street&gt;
-        &lt;postal_code type="int4" array="0"&gt;&lt;&#47;postal_code&gt;
-        &lt;city type="text" array="0"&gt;&lt;&#47;city&gt;
-        &lt;country type="text" array="0"&gt;&lt;&#47;country&gt;
+        &lt;street type="text" array="0"&gt;8th Avenue&lt;&#47;street&gt;
+        &lt;postal_code type="int4" array="0"&gt;12345&lt;&#47;postal_code&gt;
+        &lt;city type="text" array="0"&gt;New York&lt;&#47;city&gt;
+        &lt;country type="text" array="0"&gt;United States&lt;&#47;country&gt;
     &lt;&#47;address&gt;
 &lt;&#47;xml&gt;</span>
+</pre>
+    In similar way composite_to_json provides a json text:
+<pre class="terminal">
+    <span class="result">{
+    "customer_id":1000,
+    "email":"yourcustomer@email.com",
+    "name":"CustomerName",
+    "surname":"CustomerSurname",
+    "address":{
+        "street":"8th Avenue",
+        "postal_code":12345,
+        "city":"New York",
+        "country":"United States"
+    }
+}</span>
 </pre>
 
 <h2>Dependencies</h2>
@@ -129,10 +144,10 @@ CREATE TYPE customer AS
 <h2>License</h2>
 	<a href="http://www.gnu.org/licenses/lgpl.html">LGPL v3</a>
 <h2>Authors</h2>
-	<p>David Escribano García (davidegx@gmail.com)
+	<p>David Escribano Garc&iacute;a (davidegx@gmail.com)
 <br/>      </p>
 <h2>Contact</h2>
-	<p>David Escribano García (davidegx@gmail.com)
+	<p>David Escribano Garc&iacute;a (davidegx@gmail.com)
 <br/>      </p>
 
 
