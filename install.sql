@@ -13,12 +13,14 @@ $BODY$
 DECLARE
     myXML text = '';
     currentElement text;
+    myType text;
 BEGIN
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_xml(data[i], false)
           into currentElement;
-          
-        myXML := myXML || currentElement;
+
+        myType := pg_typeof(data[i])::text;
+        myXML := myXML || '<item_' || i::text || ' type="' || myType || '" array="0">' || currentElement || '</item_' || i::text || '>';
     END LOOP;
     if (tableforest) then
         return '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">' || myXML || '</xml>';
@@ -30,6 +32,7 @@ END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
+
 
 /**
  * Converts a composite type into a xml text
@@ -48,54 +51,43 @@ DECLARE
     currentType text;
     currentValue text;
     isArray integer;
-    isComposite integer;
-    arraySuffix text;
     finalXML text = '';
 BEGIN
-    FOR currentName, currentType, isArray, isComposite IN
+    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = pg_typeof(data)::text)) then
+        return data;
+    end if;
+
+    FOR currentName, currentType, isArray IN
         SELECT a.attname
              , coalesce(substring(tt.typname, 2, 100), aa.typname)
              , Case When aa.typarray is null Then 0 Else 1 End
-             , Case When tt.typname is null Then 1 Else 0 End
           FROM pg_catalog.pg_class c
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
           left join pg_type tt on tt.typelem = a.atttypid
           left join pg_type aa on aa.typarray = a.atttypid
          WHERE c.relname = pg_typeof(data)::text
+      ORDER BY a.attnum
     LOOP
-        if (isArray = 0) then
-            arraySuffix := '';
-        else
-            arraySuffix := '[]';
-        end if;
+        EXECUTE 'SELECT composite_to_xml($1."' || currentName || '", false)'
+           INTO currentValue
+          USING data, currentName;
 
-        if (isComposite = 0) then
-            EXECUTE 'SELECT $1."' || currentName ||'"'
-               INTO currentValue
-              USING data, currentName;
-        else
-            EXECUTE 'SELECT composite_to_xml($1."' || currentName || '"::'|| currentType || arraySuffix ||', false)'
-               INTO currentValue
-              USING data, currentName;
-        end if;
-
-        if (tableforest) then
-            finalXML := '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">';
-        end if;
         finalXML := finalXML || '<' || coalesce(currentName, 'NULL');
-        finalXML := finalXML || ' type="' || coalesce(currentType, 'NULL') || '" ';
+        finalXML := finalXML || ' type="' || coalesce(currentType, 'NULL') || '"';
         finalXML := finalXML || ' array="' || coalesce(isArray, 0) || '">';
         finalXML := finalXML || coalesce(currentValue, 'NULL');
         finalXML := finalXML ||'</' || coalesce(currentName, 'NULL') || '>';
-        if (tableforest) then
-            finalXML := finalXML || '</xml>';
-        end if;
     END LOOP;
+    if (tableforest) then
+        finalXML := '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">' || finalXML;
+        finalXML := finalXML || '</xml>';
+    end if;
     return finalXML;
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
+
 
 /**
 * Converts a composite type into a json text

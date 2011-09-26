@@ -13,14 +13,12 @@ $BODY$
 DECLARE
     myXML text = '';
     currentElement text;
-    myType text;
 BEGIN
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_xml(data[i], false)
           into currentElement;
-
-        myType := pg_typeof(data[i])::text;
-        myXML := myXML || '<item_' || i::text || ' type="' || myType || '" array="0">' || currentElement || '</item_' || i::text || '>';
+          
+        myXML := myXML || currentElement;
     END LOOP;
     if (tableforest) then
         return '<?xml version="1.0"?><xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="' || targetns || '">' || myXML || '</xml>';
@@ -33,3 +31,4 @@ $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 
+/
