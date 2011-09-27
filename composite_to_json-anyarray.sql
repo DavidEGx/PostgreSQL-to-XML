@@ -13,6 +13,11 @@ DECLARE
     currentElement text;
     currentType text;
 BEGIN
+    if (array_lower(data, 1) is null) then
+        jsonResult := '[]';
+        return jsonResult;
+    end if;
+
     jsonResult := '[';
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_json(data[i])

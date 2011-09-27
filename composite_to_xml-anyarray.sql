@@ -15,6 +15,11 @@ DECLARE
     currentElement text;
     myType text;
 BEGIN
+    if (array_lower(data, 1) is null) then
+        myXML := '';
+        return myXML;
+    end if;
+
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_xml(data[i], false)
           into currentElement;
