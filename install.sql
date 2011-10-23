@@ -15,6 +15,11 @@ DECLARE
     currentElement text;
     myType text;
 BEGIN
+    if (array_lower(data, 1) is null) then
+        myXML := '';
+        return myXML;
+    end if;
+
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_xml(data[i], false)
           into currentElement;
@@ -104,6 +109,11 @@ DECLARE
     currentElement text;
     currentType text;
 BEGIN
+    if (array_lower(data, 1) is null) then
+        jsonResult := '[]';
+        return jsonResult;
+    end if;
+
     jsonResult := '[';
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
         SELECT composite_to_json(data[i])
@@ -177,5 +187,435 @@ BEGIN
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+/**
+ * Set value of composite variable field dynamically
+ *
+ * @param source_object Composite variable to be updated
+ * @param field_name Field inside the variable that will be updated
+ * @param field_value Value for the field
+ * @return Returns the source_object with the field updated
+ *
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ * Based on Erwin Brandstetter code (http://goo.gl/aMQyW)
+ * 
+ */
+CREATE OR REPLACE FUNCTION composite_set_field(source_object anyelement, field_name text, field_value text)
+    RETURNS anyelement
+AS $body$
+DECLARE
+    _list text;
+BEGIN
+    _list := (
+       SELECT string_agg(x.fld, ',')
+         FROM
+         (
+               SELECT Case
+                          When a.attname = field_name Then
+                              quote_literal(field_value) || '::'||
+                                  (SELECT quote_ident(typname)
+                                     FROM pg_catalog.pg_type
+                                    WHERE oid = a.atttypid
+                                  )
+                      Else quote_ident(a.attname)
+                      End as fld
+                 FROM pg_catalog.pg_attribute a 
+                WHERE a.attrelid = (SELECT typrelid
+                                      FROM pg_catalog.pg_type
+                                     WHERE oid = pg_typeof(source_object)::oid) 
+             ORDER BY a.attnum
+         ) x
+    );
+
+    EXECUTE '
+        SELECT ' || _list || '
+          FROM   (SELECT $1.*) x'
+      USING source_object
+       INTO source_object;
+
+    return source_object;
+END;
+$body$
+    LANGUAGE plpgsql STABLE;
+
+/**
+ * Divides a json text into an array
+ *
+ * @param jsontext Text in json format
+ * @return Tokens array
+ * 
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ */
+CREATE OR REPLACE FUNCTION json_to_tokens(jsontext text)
+  RETURNS text[] AS
+$BODY$
+DECLARE
+    i integer := 1;
+    stringScaped boolean := false;
+    stringOpened boolean := false;
+    keysOpened integer := 0;
+    currentCharacter char;
+    currentState text;
+    currentKey text := '';
+    currentType text := '';
+    currentValue text := '';
+    json_tokenized text[];
+    isArray boolean;
+BEGIN
+    jsonText := replace(jsonText, chr(10), '');
+    jsonText := replace(jsonText, chr(13), '');
+    jsonText := trim(jsonText);
+
+    if (substr(jsonText, 1, 1) = '[') then
+        isArray = true;
+    else
+        isArray = false;
+    end if;
+    
+    jsonText := substr(jsonText, 2, length(jsonText) - 2);
+   
+    if (isArray) then
+        currentState := 'VALUE_START';
+    else
+        currentState := 'KEY_START';
+    end if;
+
+    /*
+     * currentState values for object:
+     *
+     * KEY_START |-> KEY |-> KEY_END |-> VALUE_START |-> VALUE_NUMBER  |-> VALUE_END |
+     * |                                             |-> VALUE_TEXT    |             |
+     * ^                                             |-> VALUE_OBJECT  |             |
+     * |                                             |-> VALUE_ARRAY   |             |
+     * |                                             |-> VALUE_BOOLEAN |             |
+     * |                                                                             |
+     * |--<--------<--------<--------<--------<--------<--------<--------<--------<--|
+     * 
+     * currentState values for array:
+     *
+     * VALUE_START      |-> VALUE_NUMBER     |-> VALUE_END |
+     * |                |-> VALUE_TEXT       |             |
+     * ^                |-> VALUE_OBJECT     |             |
+     * |                |-> VALUE_ARRAY      |             |
+     * |                |-> VALUE_BOOLEAN    |             |
+     * |                                                   |
+     * |--<--------<--------<--------<--------<--------<---|
+     */
+    while (i <= length(jsonText)) loop
+
+        currentCharacter := substring(jsonText, i, 1);
+
+        if (currentState = 'KEY_START') then
+            Case
+                When currentCharacter = '"' Then
+                    currentState = 'KEY';
+                Else
+            End case;
+
+        elseif (currentState = 'KEY') then
+            Case currentCharacter
+                When '\' Then
+                    if (stringScaped) then
+                        stringScaped := false;
+                    else
+                        stringScaped := true;
+                    end if;
+                When '"' Then 
+                    if (stringScaped) then
+                        stringScaped := false;
+                    else
+                        currentState = 'KEY_END';
+                    end if;
+                Else
+                    currentKey := currentKey || currentCharacter;
+            End Case;
+
+        elseif (currentState = 'KEY_END') then
+            if (currentCharacter = ':') then
+                currentState := 'VALUE_START';
+            end if;
+
+        elseif (currentState = 'VALUE_START') then
+            Case
+                When currentCharacter in ('t','f','n') Then
+                    currentState := 'VALUE_BOOLEAN';
+                    currentValue := currentValue || currentCharacter;
+
+                When currentCharacter in ('0','1','2','3','4','5','6','7','8','9','-') Then
+                    currentState := 'VALUE_NUMBER';
+                    currentValue := currentValue || currentCharacter;
+
+                When currentCharacter = '"' Then
+                    currentState := 'VALUE_TEXT';
+
+                When currentCharacter = '[' Then
+                    currentState := 'VALUE_ARRAY';
+                    currentValue := '[';
+                    keysOpened := 1;
+
+                When currentCharacter = '{' Then
+                    currentState := 'VALUE_OBJECT';
+                    currentValue := '{';
+                    keysOpened := 1;
+                Else
+            End Case;
+
+        elseif (currentState = 'VALUE_BOOLEAN') then
+            Case
+                When (currentValue = 'null') Then
+                    currentValue := null;
+                When 'true'  like (currentValue || currentCharacter || '%')
+                  or 'false' like (currentValue || currentCharacter || '%')
+                  or 'null'  like (currentValue || currentCharacter || '%') Then
+                    currentValue := currentValue || currentCharacter;
+                Else
+                    currentState := 'VALUE_END';
+            End Case;
+
+        elseif (currentState = 'VALUE_NUMBER') then
+            Case
+                When currentCharacter in ('0','1','2','3','4','5','6','7','8','9','.','e','E','-') Then
+                    currentValue := currentValue || currentCharacter;
+                Else
+                    currentState := 'VALUE_END';
+            End Case;
+
+        elseif (currentState = 'VALUE_TEXT') then
+            Case currentCharacter
+                When '\' Then
+                    if (stringScaped) then
+                        stringScaped := false;
+                    else
+                        stringScaped := true;
+                    end if;
+                    currentValue := currentValue || currentCharacter;
+                When '"' Then
+                    if (stringScaped) then
+                        currentValue := currentValue || currentCharacter;
+                    else
+                        currentState := 'VALUE_END';
+                    end if;
+                    stringScaped := false;
+                When ' ' Then
+                    currentValue := currentValue || ' ';
+                    stringScaped := false;
+                Else
+                    currentValue := currentValue || currentCharacter;
+                    stringScaped := false;
+            End Case;
+            
+        elseif (currentState = 'VALUE_OBJECT') then
+            Case currentCharacter
+                When '{' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (not stringOpened) then
+                        keysOpened := keysOpened + 1;
+                    end if;
+                When '}' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (not stringOpened) then
+                        keysOpened := keysOpened - 1;
+                        if (keysOpened = 0) then
+                            currentState := 'VALUE_END';
+                        end if;
+                    end if;
+                When '"' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (stringOpened) then
+                        if (stringScaped) then
+                            stringScaped := false;
+                        else
+                            stringOpened := false;
+                        end if;
+                    else
+                        stringOpened := true;
+                    end if;
+                When '\' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (stringScaped) then
+                        stringScaped := false;
+                    else
+                        stringScaped := true;
+                    end if;
+                When ' ' Then
+                    currentValue := currentValue || ' ';
+                    stringScaped := false;
+                Else
+                    currentValue := currentValue || currentCharacter;
+            End Case;
+
+        elseif (currentState = 'VALUE_ARRAY') then
+            Case currentCharacter
+                When '[' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (not stringOpened) then
+                        keysOpened := keysOpened + 1;
+                    end if;
+                When ']' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (not stringOpened) then
+                        keysOpened := keysOpened - 1;
+                        if (keysOpened = 0) then
+                            currentState := 'VALUE_END';
+                        end if;
+                    end if;
+                When '"' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (stringOpened) then
+                        if (stringScaped) then
+                            stringScaped := false;
+                        else
+                            stringOpened := false;
+                        end if;
+                    else
+                        stringOpened := true;
+                    end if;
+                When '\' Then
+                    currentValue := currentValue || currentCharacter;
+                    if (stringScaped) then
+                        stringScaped := false;
+                    else
+                        stringScaped := true;
+                    end if;
+                When ' ' Then
+                    currentValue := currentValue || ' ';
+                    stringScaped := false;
+                Else
+                    currentValue := currentValue || currentCharacter;
+            End Case;
+        end if;
+
+        if (currentState = 'VALUE_END') then
+            json_tokenized := json_tokenized || currentValue;
+            if (isArray) then
+                currentState := 'VALUE_START';
+            else
+                currentState := 'KEY_START';
+            end if;
+            currentKey   := '';
+            currentValue := '';
+        end if;
+        i := i + 1;
+    end loop;
+    if (currentValue <> '') then
+        json_tokenized := json_tokenized || currentValue;
+    end if;
+    return json_tokenized;
+END;
+$BODY$
+  LANGUAGE plpgsql IMMUTABLE
+  COST 100;
+
+
+/**
+ * Converts a json object into a Postgresql composite type
+ * 
+ * @param jsontext Valid json object
+ * @param returntype Variable declared as the desired output type
+ * @return Composite type representing the input
+ * 
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ */
+CREATE OR REPLACE FUNCTION json_to_composite(jsontext text, returntype anynonarray)
+  RETURNS anyelement AS
+$BODY$
+DECLARE
+    i integer := 1;
+    currentKey text;
+    currentType text;
+    isObject boolean;
+    isArray boolean;
+    arrayTokens text[];
+    arrayTypes text[];
+BEGIN
+
+    arrayTokens := json_to_tokens(jsontext);
+    i := 1;
+
+    FOR currentKey, currentType, isArray, isObject IN
+          SELECT a.attname
+               , coalesce(trim(leading '_' from tt.typname), aa.typname)
+               , Case
+                     When tt.typelem is null
+                         Then true
+                     Else false
+                 End
+               , Case
+                     When exists (SELECT 1
+                                    FROM pg_catalog.pg_class ic
+                                   WHERE ic.relname = trim(leading '_' from tt.typname)
+                                  )
+                         Then true
+                     Else false
+                 End
+            FROM pg_catalog.pg_class c
+            join pg_catalog.pg_attribute a on a.attrelid = c.oid
+            left join pg_type tt on tt.typelem = a.atttypid
+            left join pg_type aa on aa.typarray = a.atttypid
+           WHERE c.relname = pg_typeof(returntype)::text
+        ORDER BY a.attnum
+    LOOP
+        if (isObject) then
+            EXECUTE 'SELECT * FROM composite_set_field($1, $2, json_to_composite($3, null::' || currentType || ')::text)'
+              USING returntype, currentKey, arrayTokens[i]
+               INTO returntype;
+        elsif (isArray) then
+            EXECUTE 'SELECT * FROM composite_set_field($1, $2, json_to_composite($3, null::' || currentType || '[])::text)'
+              USING returntype, currentKey, arrayTokens[i]
+               INTO returntype;
+        else
+            returntype := (SELECT composite_set_field(returntype, currentKey, arrayTokens[i]));
+        end if;
+        i := i + 1;
+    END LOOP;
+    return returnType;
+END;
+$BODY$
+  LANGUAGE plpgsql STABLE
+  COST 100;
+
+/**
+ * Converts a json array into a Postgresql array
+ * 
+ * @param jsontext Json input
+ * @param returntype Variable declared as the desired return type
+ * @return Array representing the input
+ * 
+ * @author David Escribano Garcia <davidegx@gmail.com>
+ */
+CREATE OR REPLACE FUNCTION json_to_composite(jsontext text, returntype anyarray)
+  RETURNS anyarray AS
+$BODY$
+DECLARE
+    i integer;
+    n integer;
+    arrayTokens text[];
+    innerType text;
+BEGIN
+    innerType := pg_typeof(returntype[0])::text;
+
+    arrayTokens := json_to_tokens(jsontext);
+    i := array_lower(arrayTokens, 1);
+    n := array_upper(arrayTokens, 1);
+
+    WHILE (i <= n) LOOP
+        arrayTokens[i] := trim(replace(replace(arrayTokens[i], chr(10), ''), chr(13), ''));
+        if (substr(arrayTokens[i], 1, 1) in  ('[', '{')) then
+            -- arrayTokens[i] is an array or an object => i proceed recursively
+            EXECUTE 'SELECT $1 || json_to_composite($2, null::' || innerType || ')'
+              USING returnType, arrayTokens[i]
+               INTO returnType;
+        else
+            returnType[i] := arrayTokens[i];
+        end if;
+
+        i:= i + 1;
+    END LOOP;
+    
+    return returntype;
+END;
+$BODY$
+  LANGUAGE plpgsql STABLE 
   COST 100;
 
