@@ -5,7 +5,7 @@
 * @return Json representing the input
 * @author David Escribano Garcia <davidegx@gmail.com>
 */
-CREATE OR REPLACE FUNCTION composite_to_json(data anyarray)
+CREATE OR REPLACE FUNCTION composite_to_json(data anyarray, root boolean DEFAULT true)
   RETURNS text AS
 $BODY$
 DECLARE
@@ -20,7 +20,7 @@ BEGIN
 
     jsonResult := '[';
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
-        SELECT composite_to_json(data[i])
+        SELECT composite_to_json(data[i], false)
           into currentElement;
 
         currentType := pg_typeof(data[i])::text;

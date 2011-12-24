@@ -106,7 +106,7 @@ $BODY$
 * @return Json representing the input
 * @author David Escribano Garcia <davidegx@gmail.com>
 */
-CREATE OR REPLACE FUNCTION composite_to_json(data anyarray)
+CREATE OR REPLACE FUNCTION composite_to_json(data anyarray, root boolean DEFAULT true)
   RETURNS text AS
 $BODY$
 DECLARE
@@ -121,7 +121,7 @@ BEGIN
 
     jsonResult := '[';
     FOR i IN array_lower(data, 1) .. array_upper(data, 1) LOOP
-        SELECT composite_to_json(data[i])
+        SELECT composite_to_json(data[i], false)
           into currentElement;
 
         currentType := pg_typeof(data[i])::text;
@@ -142,7 +142,7 @@ $BODY$
  * @return Json representing the input
  * @author David Escribano Garcia <davidegx@gmail.com>
  */
-CREATE OR REPLACE FUNCTION composite_to_json(data anynonarray)
+CREATE OR REPLACE FUNCTION composite_to_json(data anynonarray, root boolean DEFAULT true)
   RETURNS text AS
 $BODY$
 DECLARE
@@ -156,7 +156,15 @@ BEGIN
     dataType := trim(both '"' from dataType);
 
     if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = dataType)) then
-        return data;
+        if (root) then
+            if (dataType = any(ARRAY['char','varchar','text', 'timestamp'])) then
+                return '{"":"' || data || '"}';
+            else
+                return '{"":' || data || '}';
+            end if;
+        else
+            return data;
+        end if;
     end if;
 
     FOR currentName, currentType IN
@@ -171,7 +179,7 @@ BEGIN
       ORDER BY a.attnum
     LOOP
 
-        EXECUTE 'SELECT composite_to_json($1."' || currentName || '")'
+        EXECUTE 'SELECT composite_to_json($1."' || currentName || '", false)'
            INTO currentValue
           USING data;
 
