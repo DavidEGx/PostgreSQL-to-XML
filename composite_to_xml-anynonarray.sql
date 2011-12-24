@@ -16,8 +16,12 @@ DECLARE
     currentValue text;
     isArray integer;
     finalXML text = '';
+    dataType text;
 BEGIN
-    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = pg_typeof(data)::text)) then
+    dataType := pg_typeof(data)::text;
+    dataType := trim(both '"' from dataType);
+
+    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = dataType)) then
         return data;
     end if;
 
@@ -29,7 +33,8 @@ BEGIN
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
           left join pg_type tt on tt.typelem = a.atttypid
           left join pg_type aa on aa.typarray = a.atttypid
-         WHERE c.relname = pg_typeof(data)::text
+         WHERE c.relname = dataType
+           and a.atttypid <> 0
       ORDER BY a.attnum
     LOOP
         EXECUTE 'SELECT composite_to_xml($1."' || currentName || '", false)'

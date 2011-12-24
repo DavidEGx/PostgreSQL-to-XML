@@ -57,8 +57,12 @@ DECLARE
     currentValue text;
     isArray integer;
     finalXML text = '';
+    dataType text;
 BEGIN
-    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = pg_typeof(data)::text)) then
+    dataType := pg_typeof(data)::text;
+    dataType := trim(both '"' from dataType);
+
+    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = dataType)) then
         return data;
     end if;
 
@@ -70,7 +74,8 @@ BEGIN
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
           left join pg_type tt on tt.typelem = a.atttypid
           left join pg_type aa on aa.typarray = a.atttypid
-         WHERE c.relname = pg_typeof(data)::text
+         WHERE c.relname = dataType
+           and a.atttypid <> 0
       ORDER BY a.attnum
     LOOP
         EXECUTE 'SELECT composite_to_xml($1."' || currentName || '", false)'
@@ -145,8 +150,12 @@ DECLARE
     currentType text;
     currentValue text;
     jsonResult text := '{';
+    dataType text;
 BEGIN
-    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = pg_typeof(data)::text)) then
+    dataType := pg_typeof(data)::text;
+    dataType := trim(both '"' from dataType);
+
+    if (not exists (SELECT 1 FROM pg_catalog.pg_class WHERE relname = dataType)) then
         return data;
     end if;
 
@@ -157,7 +166,8 @@ BEGIN
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
           left join pg_type tt on tt.typelem = a.atttypid
           left join pg_type aa on aa.typarray = a.atttypid
-         WHERE c.relname = pg_typeof(data)::text
+         WHERE c.relname = dataType
+           and a.atttypid <> 0
       ORDER BY a.attnum
     LOOP
 
@@ -170,7 +180,7 @@ BEGIN
         if (currentValue is null) then
             jsonResult := jsonResult || 'null';
         else
-            if (currentType = any(ARRAY['char','varchar','text'])) then
+            if (currentType = any(ARRAY['char','varchar','text', 'timestamp'])) then
                 jsonResult := jsonResult || '"' || currentValue || '"';
             elseif (currentType = 'bool' and currentValue = 't') then
                 jsonResult := jsonResult || 'true';
