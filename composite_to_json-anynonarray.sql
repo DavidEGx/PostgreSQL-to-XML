@@ -12,6 +12,7 @@ DECLARE
     currentName text;
     currentType text;
     currentValue text;
+    currentCategory char;
     jsonResult text := '{';
     dataType text;
 BEGIN
@@ -30,35 +31,49 @@ BEGIN
         end if;
     end if;
 
-    FOR currentName, currentType IN
+    FOR currentName, currentType, currentCategory IN
         SELECT a.attname
-             , coalesce(substring(tt.typname, 2, 100), aa.typname)
+             , coalesce(aa.typname, tt.typname)
+             , tt.typcategory
           FROM pg_catalog.pg_class c
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
-          left join pg_type tt on tt.typelem = a.atttypid
-          left join pg_type aa on aa.typarray = a.atttypid
+          join pg_catalog.pg_type tt on tt.oid = a.atttypid
+          left join pg_catalog.pg_type aa on aa.oid = tt.typelem
          WHERE c.relname = dataType
            and a.atttypid <> 0
+           and a.attnum > 0
+           and a.attisdropped = false
       ORDER BY a.attnum
     LOOP
 
-        EXECUTE 'SELECT composite_to_json($1."' || currentName || '", false)'
-           INTO currentValue
-          USING data;
-
+        -- Add name
         jsonResult := jsonResult || '"' || coalesce(currentName, '"unnamed"') || '":';
+        
+        -- Get the value
+        if (currentCategory = any(ARRAY['A', 'C'])) then
+            EXECUTE 'SELECT composite_to_json($1."' || currentName || '", false)'
+               INTO currentValue
+              USING data;
+        else
+            EXECUTE 'SELECT $1."' || currentName || '"'
+               INTO currentValue
+              USING data;
+        end if;
 
+        -- Add the value
         if (currentValue is null) then
             jsonResult := jsonResult || 'null';
         else
-            if (currentType = any(ARRAY['char','varchar','text', 'timestamp'])) then
-                jsonResult := jsonResult || '"' || currentValue || '"';
-            elseif (currentType = 'bool' and currentValue = 't') then
+            if (currentCategory = any(ARRAY['A', 'C', 'N'])) then
+                jsonResult := jsonResult || currentValue;
+            elseif (currentCategory = 'B' and currentValue = 't') then
                 jsonResult := jsonResult || 'true';
-            elseif (currentType = 'bool') then
+            elseif (currentCategory = 'B') then
                 jsonResult := jsonResult || 'false';
             else
-                jsonResult := jsonResult || currentValue;
+                currentValue := regexp_replace(currentValue, '\\', '\\\\');
+                currentValue := regexp_replace(currentValue, '"', '\\"');
+                jsonResult := jsonResult || '"' || currentValue || '"';
             end if;
         end if;
         jsonResult := jsonResult || ',';
@@ -67,5 +82,5 @@ BEGIN
     return jsonResult;
 END;
 $BODY$
-  LANGUAGE plpgsql VOLATILE
+  LANGUAGE plpgsql STABLE
   COST 100;

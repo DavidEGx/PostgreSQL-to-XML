@@ -14,7 +14,7 @@ DECLARE
     currentName text;
     currentType text;
     currentValue text;
-    isArray integer;
+    currentCategory char;
     finalXML text = '';
     dataType text;
 BEGIN
@@ -25,16 +25,18 @@ BEGIN
         return data;
     end if;
 
-    FOR currentName, currentType, isArray IN
+    FOR currentName, currentType, currentCategory IN
         SELECT a.attname
-             , coalesce(substring(tt.typname, 2, 100), aa.typname)
-             , Case When aa.typarray is null Then 0 Else 1 End
+             , coalesce(aa.typname, tt.typname)
+             , tt.typcategory
           FROM pg_catalog.pg_class c
           join pg_catalog.pg_attribute a on a.attrelid = c.oid
-          left join pg_type tt on tt.typelem = a.atttypid
-          left join pg_type aa on aa.typarray = a.atttypid
+          join pg_catalog.pg_type tt on tt.oid = a.atttypid
+          left join pg_catalog.pg_type aa on aa.oid = tt.typelem
          WHERE c.relname = dataType
            and a.atttypid <> 0
+           and a.attnum > 0
+           and a.attisdropped = false
       ORDER BY a.attnum
     LOOP
         EXECUTE 'SELECT composite_to_xml($1."' || currentName || '", false)'
@@ -43,7 +45,11 @@ BEGIN
 
         finalXML := finalXML || '<' || coalesce(currentName, 'NULL');
         finalXML := finalXML || ' type="' || coalesce(currentType, 'NULL') || '"';
-        finalXML := finalXML || ' array="' || coalesce(isArray, 0) || '">';
+        if (currentCategory = 'A') then
+            finalXML := finalXML || ' array="1">';
+        else
+            finalXML := finalXML || ' array="0">';
+        end if;
         finalXML := finalXML || coalesce(currentValue, 'NULL');
         finalXML := finalXML ||'</' || coalesce(currentName, 'NULL') || '>';
     END LOOP;
@@ -54,6 +60,6 @@ BEGIN
     return finalXML;
 END;
 $BODY$
-  LANGUAGE plpgsql VOLATILE
+  LANGUAGE plpgsql STABLE
   COST 100;
 
