@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION json_to_composite(jsontext text, returntype anynonarr
   RETURNS anyelement AS
 $BODY$
 DECLARE
+    dataType text;
     i integer := 1;
     currentKey text;
     currentType text;
@@ -19,8 +20,10 @@ DECLARE
     arrayTokens text[];
     arrayTypes text[];
 BEGIN
+    dataType := pg_typeof(returntype)::text;
+    dataType := trim(both '"' from dataType);
 
-    arrayTokens := json_to_tokens(jsontext);
+    arrayTokens := json_to_tokens(jsontext, true);
     i := 1;
 
     FOR currentKey, currentType, isArray, isObject IN
@@ -43,8 +46,11 @@ BEGIN
             join pg_catalog.pg_attribute a on a.attrelid = c.oid
             left join pg_type tt on tt.typelem = a.atttypid
             left join pg_type aa on aa.typarray = a.atttypid
-           WHERE c.relname = pg_typeof(returntype)::text
-        ORDER BY a.attnum
+           WHERE c.relname = dataType
+             and a.atttypid <> 0
+             and a.attnum > 0
+             and a.attisdropped = false
+        ORDER BY a.attname
     LOOP
         if (isObject) then
             EXECUTE 'SELECT * FROM composite_set_field($1, $2, json_to_composite($3, null::' || currentType || ')::text)'

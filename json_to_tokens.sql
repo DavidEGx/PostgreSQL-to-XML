@@ -6,7 +6,7 @@
  * 
  * @author David Escribano Garcia <davidegx@gmail.com>
  */
-CREATE OR REPLACE FUNCTION json_to_tokens(jsontext text)
+CREATE OR REPLACE FUNCTION json_to_tokens(jsontext text, ordered boolean DEFAULT false)
   RETURNS text[] AS
 $BODY$
 DECLARE
@@ -19,7 +19,8 @@ DECLARE
     currentKey text := '';
     currentType text := '';
     currentValue text := '';
-    json_tokenized text[];
+    json_keys text[];
+    json_values text[];
     isArray boolean;
 BEGIN
     jsonText := replace(jsonText, chr(10), '');
@@ -124,6 +125,7 @@ BEGIN
             Case
                 When (currentValue = 'null') Then
                     currentValue := null;
+                    currentState := 'VALUE_END';
                 When 'true'  like (currentValue || currentCharacter || '%')
                   or 'false' like (currentValue || currentCharacter || '%')
                   or 'null'  like (currentValue || currentCharacter || '%') Then
@@ -246,7 +248,8 @@ BEGIN
         end if;
 
         if (currentState = 'VALUE_END') then
-            json_tokenized := json_tokenized || currentValue;
+            json_keys := json_keys || currentKey;
+            json_values := json_values || currentValue;
             if (isArray) then
                 currentState := 'VALUE_START';
             else
@@ -258,9 +261,20 @@ BEGIN
         i := i + 1;
     end loop;
     if (currentValue <> '') then
-        json_tokenized := json_tokenized || currentValue;
+        json_keys := json_keys || currentKey;
+        json_values := json_values || currentValue;
     end if;
-    return json_tokenized;
+
+    if (ordered) then
+        SELECT array(
+            SELECT json_values[j]
+              FROM generate_series(1, array_upper(json_values, 1)) j
+          ORDER BY json_keys[j]
+        )
+          INTO json_values;
+    end if;
+
+    return json_values;
 END;
 $BODY$
   LANGUAGE plpgsql IMMUTABLE

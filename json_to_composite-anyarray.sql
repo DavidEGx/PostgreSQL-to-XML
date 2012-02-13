@@ -18,7 +18,7 @@ DECLARE
 BEGIN
     innerType := pg_typeof(returntype[0])::text;
 
-    arrayTokens := json_to_tokens(jsontext);
+    arrayTokens := json_to_tokens(jsontext, true);
     i := array_lower(arrayTokens, 1);
     n := array_upper(arrayTokens, 1);
 

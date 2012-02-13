@@ -16,6 +16,10 @@ AS $body$
 DECLARE
     _list text;
 BEGIN
+    if (field_value is null) then
+        return source_object;
+    end if;
+    
     _list := (
        SELECT string_agg(x.fld, ',')
          FROM
@@ -33,6 +37,8 @@ BEGIN
                 WHERE a.attrelid = (SELECT typrelid
                                       FROM pg_catalog.pg_type
                                      WHERE oid = pg_typeof(source_object)::oid) 
+                  and a.attnum > 0
+                  and a.attisdropped = false
              ORDER BY a.attnum
          ) x
     );
